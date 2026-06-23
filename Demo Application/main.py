@@ -1,19 +1,3 @@
-"""
-app_gui.py
-GUI cho hệ thống nhận diện biển báo giao thông (YOLOv8 + EasyOCR).
-
-Chạy: python app_gui.py
-
-3 chế độ:
-  1. Camera   - webcam realtime, có tracking + ghim box + khóa OCR tốc độ
-  2. Ảnh      - chọn 1 file ảnh từ máy, predict 1 lần, hiển thị + lưu kết quả
-  3. Video    - chọn 1 file video từ máy, predict frame-by-frame có tracking,
-                hiển thị trực tiếp trong app + xuất video kết quả (tùy chọn)
-
-Yêu cầu: pip install ultralytics opencv-python easyocr pillow
-File model 'best.pt' phải nằm cùng thư mục (hoặc sửa MODEL_PATH trong processor.py)
-"""
-
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading

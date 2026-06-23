@@ -1,9 +1,3 @@
-"""
-processor.py
-Lõi xử lý: detect (YOLO) + track (ByteTrack) + OCR biển báo tốc độ (EasyOCR)
-+ vẽ box/label. Tách riêng để dùng chung cho cả 3 mode: Camera / Ảnh / Video.
-"""
-
 from ultralytics import YOLO
 import cv2
 import easyocr
@@ -127,12 +121,6 @@ def preprocess_for_ocr(crop):
 
 
 class TrafficSignProcessor:
-    """
-    Bọc model YOLO + EasyOCR + state tracking.
-    Dùng được cho 3 chế độ:
-      - process_frame_tracked(frame): dùng cho camera/video (có track_id xuyên suốt)
-      - process_image_single(frame): dùng cho 1 ảnh tĩnh (không cần track id, chỉ detect + OCR 1 lần)
-    """
 
     def __init__(self, model_path=MODEL_PATH, use_gpu=True, progress_cb=None):
         if progress_cb:
@@ -166,7 +154,12 @@ class TrafficSignProcessor:
             result = self.reader.readtext(proc, allowlist='0123456789', detail=0)
             for r in result:
                 digits = r.strip()
-                if digits.isdigit() and 1 <= len(digits) <= 3 and SPEED_MIN <= int(digits) <= SPEED_MAX:
+                if (
+                    digits.isdigit()
+                    and 1 <= len(digits) <= 3
+                    and SPEED_MIN <= int(digits) <= SPEED_MAX
+                    and int(digits) % 5 == 0   # chỉ chấp nhận bội của 5
+                ):
                     return digits
         except Exception:
             pass
@@ -277,6 +270,10 @@ class TrafficSignProcessor:
             if t["hits"] < MIN_HITS:
                 continue
 
+            # Bỏ qua P.127 chưa khóa được tốc độ hợp lệ
+            if t["cls_name"] == SPEED_SIGN_CLASS and not t["speed_locked"]:
+                continue
+
             cx, cy = t["center"]
             w, h = t["size"]
             box = center_size_to_box(cx, cy, w, h)
@@ -288,7 +285,7 @@ class TrafficSignProcessor:
 
             draw_corner_box(frame, (x1, y1, x2, y2), color, dashed=is_ghost)
 
-            label = f"{t['cls_name']} {t['conf']:.2f} #{tid}"
+            label = f"{t['cls_name']} {t['conf']:.2f}"
             if t["cls_name"] == SPEED_SIGN_CLASS and t["speed_locked"]:
                 label += f" | {t['speed_locked']} km/h"
 
@@ -298,12 +295,6 @@ class TrafficSignProcessor:
 
     # ---------- MODE: ẢNH TĨNH (không cần track_id, OCR ngay lập tức) ----------
     def process_image_single(self, frame):
-        """
-        Xử lý 1 ảnh độc lập (không có khái niệm 'frame trước'):
-        detect trực tiếp (không track), với biển tốc độ thì OCR ngay luôn
-        (không cần chờ vote nhiều lần vì ảnh tĩnh chỉ có 1 lượt detect).
-        Trả về frame đã vẽ.
-        """
         frame_h, frame_w = frame.shape[:2]
 
         results = self.model.predict(
@@ -326,18 +317,17 @@ class TrafficSignProcessor:
                 x1, y1, x2, y2 = box_clamped
 
                 color = self.class_colors.get(cls_id, (0, 255, 0))
-                draw_corner_box(frame, (x1, y1, x2, y2), color, dashed=False)
-
                 label = f"{cls_name} {conf:.2f}"
 
                 if cls_name == SPEED_SIGN_CLASS:
-                    # ảnh tĩnh: thử đọc OCR vài lần trên cùng 1 crop (vì không có gì
-                    # để "vote" qua thời gian), lấy kết quả phổ biến nhất nếu đọc được
+                    # Chỉ vẽ khi OCR đọc được tốc độ hợp lệ (bội của 5)
                     crop = frame[y1:y2, x1:x2]
                     speed = self.read_speed(crop)
-                    if speed:
-                        label += f" | {speed} km/h"
+                    if not speed:
+                        continue  # không vẽ gì nếu chưa đọc được
+                    label += f" | {speed} km/h"
 
+                draw_corner_box(frame, (x1, y1, x2, y2), color, dashed=False)
                 draw_label(frame, x1, y1, label, color)
 
         return frame
